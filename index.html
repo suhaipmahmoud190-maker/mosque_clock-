@@ -38,11 +38,29 @@
         }
         .prayer-row.active { color: #ffcc00; font-weight: bold; border-bottom: 1px solid #ffcc00; }
         .time-val { direction: ltr; }
-        #citySelect {
-            background: #1a1d27; color: #ffcc00; border: 1px solid #444;
-            border-radius: 8px; padding: 8px 14px; font-size: clamp(1em, 3vw, 1.3em);
-            margin-bottom: 4vh; font-family: inherit; text-align: center;
+        #settingsBtn {
+            position: fixed; top: 16px; right: 16px;
+            background: #1a1d27; border: 1px solid #444; color: #ffcc00;
+            font-size: 1.4em; width: 44px; height: 44px; border-radius: 50%;
+            cursor: pointer; z-index: 100; display: flex; align-items: center; justify-content: center;
         }
+        .settings-panel {
+            position: fixed; top: 68px; right: 16px;
+            background: #1a1d27; border: 1px solid #444; border-radius: 10px;
+            padding: 14px; z-index: 100; box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        }
+        .settings-panel select {
+            background: #11131a; color: #ffcc00; border: 1px solid #444;
+            border-radius: 8px; padding: 8px 14px; font-size: 1.1em;
+            font-family: inherit; text-align: center;
+        }
+        .date-display {
+            font-size: clamp(0.85em, 3vw, 1.15em);
+            color: #ccc; margin-bottom: 3vh; line-height: 1.7;
+        }
+        .date-display .hijri { color: #66ff99; }
+        .date-display .gregorian { color: #aaa; }
+        .hidden { display: none !important; }
 
         /* شاشات كبيرة جداً (تلفزيون / شاشة عرض في المسجد) */
         @media (min-width: 1000px) {
@@ -60,8 +78,10 @@
     <meta name="apple-mobile-web-app-title" content="ساعة المسجد">
 </head>
 <body>
-    <div class="wrapper">
-        <div class="label">المدينة</div>
+    <button id="settingsBtn" onclick="toggleSettings()" title="الإعدادات">⚙️</button>
+
+    <div id="settingsPanel" class="settings-panel hidden">
+        <div class="label">اختر المدينة</div>
         <select id="citySelect" onchange="onCityChange()">
             <option value="damascus">دمشق</option>
             <option value="aleppo">حلب</option>
@@ -78,6 +98,10 @@
             <option value="sweida">السويداء</option>
             <option value="quneitra">القنيطرة</option>
         </select>
+    </div>
+
+    <div class="wrapper">
+        <div id="dateDisplay" class="date-display"></div>
 
         <div class="label">الوقت الحالي</div>
         <div id="currentTime" class="main-time">00:00:00</div>
@@ -124,12 +148,25 @@
         let LAT = CITIES[currentCity].lat;
         let LNG = CITIES[currentCity].lng;
 
+        function toggleSettings() {
+            document.getElementById('settingsPanel').classList.toggle('hidden');
+        }
+
+        document.addEventListener('click', function(e) {
+            const panel = document.getElementById('settingsPanel');
+            const btn = document.getElementById('settingsBtn');
+            if (!panel.contains(e.target) && !btn.contains(e.target)) {
+                panel.classList.add('hidden');
+            }
+        });
+
         function onCityChange() {
             const select = document.getElementById('citySelect');
             currentCity = select.value;
             localStorage.setItem('selectedCity', currentCity);
             LAT = CITIES[currentCity].lat;
             LNG = CITIES[currentCity].lng;
+            document.getElementById('settingsPanel').classList.add('hidden');
             update();
         }
 
@@ -223,11 +260,35 @@
             return d;
         }
 
+        function formatDates(now) {
+            // التاريخ الهجري (أم القرى) - محسوب محلياً من المتصفح بدون انترنت
+            let hijriStr = "";
+            try {
+                hijriStr = new Intl.DateTimeFormat('ar-SA-u-ca-islamic-umalqura', {
+                    day: 'numeric', month: 'long', year: 'numeric'
+                }).format(now);
+            } catch (e) {
+                hijriStr = "";
+            }
+
+            // التاريخ الميلادي بالعربي
+            const gregStr = new Intl.DateTimeFormat('ar-EG', {
+                weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+            }).format(now);
+
+            return { hijriStr, gregStr };
+        }
+
         function update() {
             const now = new Date();
 
-            // الساعة الحالية - نظام 24 ساعة
+            // الساعة الحالية - نظام 12 ساعة
             document.getElementById('currentTime').innerText = now.toLocaleTimeString('ar-EG', { hour12: true });
+
+            // التاريخ الهجري والميلادي
+            const { hijriStr, gregStr } = formatDates(now);
+            document.getElementById('dateDisplay').innerHTML =
+                `<div class="hijri">${hijriStr} هـ</div><div class="gregorian">${gregStr} م</div>`;
 
             const times = computePrayerTimes(now);
             const order = ["الفجر", "الشروق", "الظهر", "العصر", "المغرب", "العشاء"];
