@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+    <title>ساعة المسجد - دمشق</title>
+    <meta name="theme-color" content="#000000">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-title" content="ساعة المسجد">
+    
+    <style>
+        * { box-sizing: border-box; }
+        html, body {
+            background: #000; color: #fff; font-family: sans-serif;
+            text-align: center; margin: 0; padding: 0;
+            width: 100%; min-height: 100vh;
+        }
+        .wrapper {
+            max-width: 600px; margin: 0 auto;
+            padding: 5vh 20px;
+            min-height: 100vh;
+            display: flex; flex-direction: column; justify-content: center;
+        }
+        .label { font-size: clamp(0.8em, 2.5vw, 1.1em); color: #aaa; margin-bottom: 4px; }
+        .main-time {
+            font-size: clamp(2.2em, 10vw, 4.5em);
+            color: #ffcc00; margin-bottom: 6px; direction: ltr;
+            font-variant-numeric: tabular-nums;
+        }
+        .countdown-box { margin-bottom: 5vh; }
+        .next-name { font-size: clamp(1.1em, 4vw, 1.8em); color: #66ff99; margin-bottom: 4px; }
+        .countdown {
+            font-size: clamp(1.6em, 7vw, 2.8em);
+            color: #66ff99; direction: ltr;
+            font-variant-numeric: tabular-nums;
+        }
+        .timesList { max-width: 420px; width: 100%; margin: 0 auto; }
+        .prayer-row {
+            display: flex; justify-content: space-between;
+            font-size: clamp(1.1em, 4vw, 1.6em);
+            border-bottom: 1px solid #333; padding: 10px 6px;
+        }
+        .prayer-row.active { color: #ffcc00; font-weight: bold; border-bottom: 1px solid #ffcc00; }
+        .time-val { direction: ltr; }
+
+        @media (min-width: 1000px) {
+            .wrapper { max-width: 900px; }
+            .main-time { font-size: 6em; }
+            .countdown { font-size: 3.2em; }
+            .timesList { max-width: 600px; }
+            .prayer-row { font-size: 1.9em; padding: 14px 10px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="wrapper">
+        <div class="label">الوقت الحالي</div>
+        <div id="currentTime" class="main-time">00:00:00</div>
+
+        <div class="countdown-box">
+            <div class="label">الصلاة القادمة</div>
+            <div id="nextName" class="next-name">--</div>
+            <div class="label">الوقت المتبقي</div>
+            <div id="countdown" class="countdown">00:00:00</div>
+        </div>
+
+        <div id="timesList" class="timesList"></div>
+    </div>
+
+    <script>
+        // --- Service Worker لتشغيل الموقع أوفلاين ---
+        if ('serviceWorker' in navigator) {
+            const swCode = `
+                const cacheName = 'prayer-clock-v1';
+                self.addEventListener('install', (e) => {
+                    e.waitUntil(caches.open(cacheName).then((cache) => cache.addAll(['./'])));
+                });
+                self.addEventListener('fetch', (e) => {
+                    e.respondWith(caches.match(e.request).then((res) => res || fetch(e.request)));
+                });
+            `;
+            const blob = new Blob([swCode], {type: 'application/javascript'});
+            const swUrl = URL.createObjectURL(blob);
+            navigator.serviceWorker.register(swUrl);
+        }
+
+        // --- منطق الحسابات الفلكية (الكود الخاص بك) ---
+        const LAT = 33.51, LNG = 36.29, TIMEZONE = 3;
+        const FAJR_ANGLE = 18, ISHA_ANGLE = 17, ASR_FACTOR = 1;
+
+        const DEG2RAD = Math.PI / 180;
+        const Dsin = (d) => Math.sin(d * DEG2RAD);
+        const Dcos = (d) => Math.cos(d * DEG2RAD);
+        const Dtan = (d) => Math.tan(d * DEG2RAD);
+        const Darcsin = (x) => Math.asin(x) / DEG2RAD;
+        const Darccos = (x) => Math.acos(x) / DEG2RAD;
+        const Darctan2 = (y, x) => Math.atan2(y, x) / DEG2RAD;
+        const Darccot = (x) => Math.atan2(1, x) / DEG2RAD;
+        const fixAngle = (a) => { a = a % 360; return a < 0 ? a + 360 : a; };
+        const fixHour = (h) => { h = h % 24; return h < 0 ? h + 24 : h; };
+
+        function julianDate(year, month, day) {
+            if (month <= 2) { year -= 1; month += 12; }
+            const A = Math.floor(year / 100);
+            const B = 2 - A + Math.floor(A / 4);
+            return Math.floor(365.25 * (year + 4716)) + Math.floor(30.6001 * (month + 1)) + day + B - 1524.5;
+        }
+
+        function sunPosition(jd) {
+            const D = jd - 2451545.0;
+            const g = fixAngle(357.529 + 0.98560028 * D);
+            const q = fixAngle(280.459 + 0.98564736 * D);
+            const L = fixAngle(q + 1.915 * Dsin(g) + 0.020 * Dsin(2 * g));
+            const e = 23.439 - 0.00000036 * D;
+            const RA = Darctan2(Dcos(e) * Dsin(L), Dcos(L)) / 15;
+            const eqt = q / 15 - fixHour(RA);
+            const decl = Darcsin(Dsin(e) * Dsin(L));
+            return { declination: decl, equation: eqt };
+        }
+
+        function sunAngleTime(angle, decl, lat) {
+            const val = (-Dsin(angle) - Dsin(lat) * Dsin(decl)) / (Dcos(lat) * Dcos(decl));
+            return Darccos(val) / 15;
+        }
+
+        function asrTime(factor, decl, lat) {
+            const angle = -Darccot(factor + Dtan(Math.abs(lat - decl)));
+            return sunAngleTime(angle, decl, lat);
+        }
+
+        function computePrayerTimes(date) {
+            const jd = julianDate(date.getFullYear(), date.getMonth() + 1, date.getDate());
+            const { declination: decl, equation: eqt } = sunPosition(jd - LNG / (15 * 24));
+            const dhuhrTime = fixHour(12 + TIMEZONE - LNG / 15 - eqt);
+            return {
+                "الفجر": fixHour(dhuhrTime - sunAngleTime(FAJR_ANGLE, decl, LAT)),
+                "الشروق": fixHour(dhuhrTime - sunAngleTime(0.833, decl, LAT)),
+                "الظهر": dhuhrTime,
+                "العصر": fixHour(dhuhrTime + asrTime(ASR_FACTOR, decl, LAT)),
+                "المغرب": fixHour(dhuhrTime + sunAngleTime(0.833, decl, LAT)),
+                "العشاء": fixHour(dhuhrTime + sunAngleTime(ISHA_ANGLE, decl, LAT))
+            };
+        }
+
+        function formatTime(t) {
+            let h = Math.floor(t);
+            let m = Math.round((t - h) * 60);
+            if (m === 60) { m = 0; h += 1; }
+            h = h % 24;
+            const period = h >= 12 ? "م" : "ص";
+            let h12 = h % 12;
+            if (h12 === 0) h12 = 12;
+            return h12 + ":" + (m < 10 ? "0" : "") + m + " " + period;
+        }
+
+        function timeToDate(baseDate, decimalHour) {
+            const d = new Date(baseDate);
+            d.setHours(0, 0, 0, 0);
+            d.setMilliseconds(decimalHour * 60 * 60 * 1000);
+            return d;
+        }
+
+        function update() {
+            const now = new Date();
+            document.getElementById('currentTime').innerText = now.toLocaleTimeString('ar-EG', { hour12: true });
+            const times = computePrayerTimes(now);
+            const order = ["الفجر", "الشروق", "الظهر", "العصر", "المغرب", "العشاء"];
+            let dateTimes = order.map(name => ({ name, decimal: times[name], date: timeToDate(now, times[name]) }));
+            const prayerOnly = dateTimes.filter(t => t.name !== "الشروق");
+            let next = prayerOnly.find(t => t.date > now);
+            if (!next) {
+                const tomorrow = new Date(now);
+                tomorrow.setDate(tomorrow.getDate() + 1);
+                const tTimes = computePrayerTimes(tomorrow);
+                next = { name: "الفجر", date: timeToDate(tomorrow, tTimes["الفجر"]) };
+            }
+            const diffMs = next.date - now;
+            const diffSec = Math.max(0, Math.floor(diffMs / 1000));
+            const pad = (n) => (n < 10 ? "0" : "") + n;
+            document.getElementById('nextName').innerText = next.name;
+            document.getElementById('countdown').innerText = `${pad(Math.floor(diffSec / 3600))}:${pad(Math.floor((diffSec % 3600) / 60))}:${pad(diffSec % 60)}`;
+            let html = "";
+            for (let t of dateTimes) {
+                const isActive = (t.name === next.name);
+                html += `<div class='prayer-row${isActive ? " active" : ""}'><span>${t.name}</span><span class="time-val">${formatTime(t.decimal)}</span></div>`;
+            }
+            document.getElementById('timesList').innerHTML = html;
+        }
+        setInterval(update, 1000);
+        update();
+    </script>
+</body>
+</html>
