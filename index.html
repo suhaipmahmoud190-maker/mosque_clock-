@@ -38,6 +38,11 @@
         }
         .prayer-row.active { color: #ffcc00; font-weight: bold; border-bottom: 1px solid #ffcc00; }
         .time-val { direction: ltr; }
+        #citySelect {
+            background: #1a1d27; color: #ffcc00; border: 1px solid #444;
+            border-radius: 8px; padding: 8px 14px; font-size: clamp(1em, 3vw, 1.3em);
+            margin-bottom: 4vh; font-family: inherit; text-align: center;
+        }
 
         /* شاشات كبيرة جداً (تلفزيون / شاشة عرض في المسجد) */
         @media (min-width: 1000px) {
@@ -56,6 +61,24 @@
 </head>
 <body>
     <div class="wrapper">
+        <div class="label">المدينة</div>
+        <select id="citySelect" onchange="onCityChange()">
+            <option value="damascus">دمشق</option>
+            <option value="aleppo">حلب</option>
+            <option value="homs">حمص</option>
+            <option value="hama">حماة</option>
+            <option value="lattakia">اللاذقية</option>
+            <option value="idlib">إدلب</option>
+            <option value="daraa">درعا</option>
+            <option value="deirezzor">دير الزور</option>
+            <option value="raqqa">الرقة</option>
+            <option value="hasakah">الحسكة</option>
+            <option value="qamishli">القامشلي</option>
+            <option value="tartus">طرطوس</option>
+            <option value="sweida">السويداء</option>
+            <option value="quneitra">القنيطرة</option>
+        </select>
+
         <div class="label">الوقت الحالي</div>
         <div id="currentTime" class="main-time">00:00:00</div>
 
@@ -77,10 +100,38 @@
          * تقريباً لما يظهر في جوجل والمواقع المعتمدة (فارق ثوانٍ بسبب اختلاف زاوية الفجر/العشاء المعتمدة)
          */
 
-        // ---- إعدادات الموقع (دمشق) ----
-        const LAT = 33.51;
-        const LNG = 36.29;
-        const TIMEZONE = 3; // توقيت سوريا UTC+3 (بدون توقيت صيفي حالياً)
+        // ---- قاعدة بيانات المدن السورية (إحداثيات دقيقة) ----
+        const CITIES = {
+            damascus:  { name: "دمشق",      lat: 33.5138, lng: 36.2765 },
+            aleppo:    { name: "حلب",       lat: 36.2021, lng: 37.1343 },
+            homs:      { name: "حمص",       lat: 34.7324, lng: 36.7137 },
+            hama:      { name: "حماة",      lat: 35.1318, lng: 36.7578 },
+            lattakia:  { name: "اللاذقية",   lat: 35.5317, lng: 35.7915 },
+            idlib:     { name: "إدلب",      lat: 35.9306, lng: 36.6339 },
+            daraa:     { name: "درعا",      lat: 32.6189, lng: 36.1021 },
+            deirezzor: { name: "دير الزور",  lat: 35.3359, lng: 40.1408 },
+            raqqa:     { name: "الرقة",     lat: 35.9594, lng: 39.0089 },
+            hasakah:   { name: "الحسكة",    lat: 36.5024, lng: 40.7477 },
+            qamishli:  { name: "القامشلي",   lat: 37.0522, lng: 41.2186 },
+            tartus:    { name: "طرطوس",     lat: 34.8893, lng: 35.8866 },
+            sweida:    { name: "السويداء",   lat: 32.7094, lng: 36.5694 },
+            quneitra:  { name: "القنيطرة",   lat: 33.1264, lng: 35.8244 }
+        };
+
+        const TIMEZONE = 3; // توقيت سوريا UTC+3 (موحّد لكل المدن، بدون توقيت صيفي)
+
+        let currentCity = localStorage.getItem('selectedCity') || 'damascus';
+        let LAT = CITIES[currentCity].lat;
+        let LNG = CITIES[currentCity].lng;
+
+        function onCityChange() {
+            const select = document.getElementById('citySelect');
+            currentCity = select.value;
+            localStorage.setItem('selectedCity', currentCity);
+            LAT = CITIES[currentCity].lat;
+            LNG = CITIES[currentCity].lng;
+            update();
+        }
 
         // زوايا الحساب (نفس طريقة رابطة العالم الإسلامي - المستخدمة بشكل شائع في الشام)
         const FAJR_ANGLE = 18;
@@ -216,6 +267,7 @@
         }
 
         setInterval(update, 1000);
+        document.getElementById('citySelect').value = currentCity;
         update();
 
         // تسجيل Service Worker للعمل أوفلاين بعد أول فتحة
